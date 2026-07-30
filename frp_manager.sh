@@ -1,9 +1,10 @@
 #!/bin/bash
 # FRP Manager 一体化脚本 安装｜升级｜卸载 amd64 systemd
 # 增强：依赖自动安装、web端口区分默认、移除tls配置、下载进度/速度实时显示
+# 修复：所有交互/端口检测日志重定向stderr，避免彩色日志混入toml配置
 set -euo pipefail
 # 捕获Ctrl+C清理临时文件
-trap '[[ -n "${TMP_TAR:-}" && -f "${TMP_TAR}" ]] && rm -f "${TMP_TAR}"; [[ -n "${TMP_DIR:-}" && -d "${TMP_DIR}" ]] && rm -rf "${TMP_DIR}"; echo -e "\n${YELLOW}[提示] 已清理临时文件，脚本退出${NC}"; exit 1' SIGINT SIGTERM
+trap '[[ -n "${TMP_TAR:-}" && -f "${TMP_TAR}" ]] && rm -f "${TMP_TAR}"; [[ -n "${TMP_DIR:-}" && -d "${TMP_DIR}" ]] && rm -rf "${TMP_DIR}"; echo -e "\n${YELLOW}[提示] 已清理临时文件，脚本退出${NC}" >&2; exit 1' SIGINT SIGTERM
 # ========== 颜色定义 ==========
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -28,18 +29,18 @@ check_dependencies() {
         missing+=("jq")
     fi
     if ! command -v systemctl &> /dev/null; then
-        echo -e "${RED}[错误] 当前系统不支持 systemd，脚本无法运行！${NC}"
+        echo -e "${RED}[错误] 当前系统不支持 systemd，脚本无法运行！${NC}" >&2
         exit 1
     fi
     if [[ ${#missing[@]} -eq 0 ]]; then
-        echo -e "${GREEN}[校验] 所有依赖已就绪${NC}"
+        echo -e "${GREEN}[校验] 所有依赖已就绪${NC}" >&2
         return 0
     fi
-    echo -e "${YELLOW}[警告] 缺失依赖组件：${missing[*]}${NC}"
-    read -p "是否自动安装缺失依赖？[y/n] " INSTALL_DEP
+    echo -e "${YELLOW}[警告] 缺失依赖组件：${missing[*]}${NC}" >&2
+    read -p "是否自动安装缺失依赖？[y/n] " INSTALL_DEP >&2
     if [[ "${INSTALL_DEP,,}" != "y" ]]; then
-        echo -e "${BLUE}Debian/Ubuntu：apt update && apt install curl wget jq -y${NC}"
-        echo -e "${BLUE}CentOS/Rocky：yum install curl wget jq -y${NC}"
+        echo -e "${BLUE}Debian/Ubuntu：apt update && apt install curl wget jq -y${NC}" >&2
+        echo -e "${BLUE}CentOS/Rocky：yum install curl wget jq -y${NC}" >&2
         exit 1
     fi
     # 判断系统包管理器安装
@@ -50,14 +51,14 @@ check_dependencies() {
     elif command -v dnf &> /dev/null; then
         dnf install curl wget jq -y
     else
-        echo -e "${RED}[错误] 无法识别系统包管理器，请手动安装 curl wget jq${NC}"
+        echo -e "${RED}[错误] 无法识别系统包管理器，请手动安装 curl wget jq${NC}" >&2
         exit 1
     fi
-    echo -e "${GREEN}[完成] 依赖安装完毕，继续执行脚本${NC}"
+    echo -e "${GREEN}[完成] 依赖安装完毕，继续执行脚本${NC}" >&2
 }
 # ========== 公共函数：拉取最新版本 ==========
 get_latest_frp_version() {
-    echo -e "${BLUE}\n正在获取FRP最新版本号...${NC}"
+    echo -e "${BLUE}\n正在获取FRP最新版本号...${NC}" >&2
     local VER=""
     # 多套国内镜像API兜底，按顺序轮询
     local API_URLS=(
@@ -68,7 +69,7 @@ get_latest_frp_version() {
     )
     local retry_times=2
     for url in "${API_URLS[@]}"; do
-        echo -e "${YELLOW}尝试接口：${url}${NC}"
+        echo -e "${YELLOW}尝试接口：${url}${NC}" >&2
         local resp=""
         # 单接口重试2次，超时15s
         for ((r=0; r < retry_times; r++)); do
@@ -80,12 +81,12 @@ get_latest_frp_version() {
             fi
             # 读取curl报错并打印
             err_msg=$(cat /tmp/frp_api_err.log)
-            echo -e "${RED}接口请求失败：${err_msg}，等待1秒重试${NC}"
+            echo -e "${RED}接口请求失败：${err_msg}，等待1秒重试${NC}" >&2
             sleep 1
         done
         rm -f /tmp/frp_api_err.log
         if [[ -z "${resp}" ]]; then
-            echo -e "${YELLOW}当前接口完全无法访问，切换下一个源${NC}"
+            echo -e "${YELLOW}当前接口完全无法访问，切换下一个源${NC}" >&2
             continue
         fi
         # 解析版本
@@ -97,15 +98,15 @@ get_latest_frp_version() {
         if [[ -n "${VER}" && "${VER}" != "null" ]]; then
             break
         fi
-        echo -e "${YELLOW}接口返回数据解析无有效版本，切换下一个源${NC}"
+        echo -e "${YELLOW}接口返回数据解析无有效版本，切换下一个源${NC}" >&2
     done
     if [[ -z "${VER}" || "${VER}" == "null" ]]; then
-        echo -e "${RED}[严重警告] 所有镜像接口均连接失败/解析失败，网络无法访问Github Release接口${NC}"
-        echo -e "${YELLOW}当前将使用兜底固定版本 v${FALLBACK_FR_VERSION}，如需最新版请检查服务器网络或切换网络环境${NC}"
+        echo -e "${RED}[严重警告] 所有镜像接口均连接失败/解析失败，网络无法访问Github Release接口${NC}" >&2
+        echo -e "${YELLOW}当前将使用兜底固定版本 v${FALLBACK_FR_VERSION}，如需最新版请检查服务器网络或切换网络环境${NC}" >&2
         FRP_VERSION="${FALLBACK_FR_VERSION}"
     else
         FRP_VERSION="${VER}"
-        echo -e "${GREEN}✅ 检测到最新frp版本：v${FRP_VERSION}${NC}"
+        echo -e "${GREEN}✅ 检测到最新frp版本：v${FRP_VERSION}${NC}" >&2
     fi
 }
 # ========== 公共函数：下载frp二进制（带进度+速度） ==========
@@ -123,19 +124,19 @@ download_frp_bin() {
         "${raw_url}"
     )
     local dl_ok=false
-    echo -e "${GREEN}\n开始下载 FRP v${FRP_VERSION} linux_${ARCH}${NC}"
+    echo -e "${GREEN}\n开始下载 FRP v${FRP_VERSION} linux_${ARCH}${NC}" >&2
     for dl in "${DL_URLS[@]}"; do
-        echo -e "${BLUE}尝试下载地址：${dl}${NC}"
+        echo -e "${BLUE}尝试下载地址：${dl}${NC}" >&2
         # 带实时进度条、下载速度
         if wget --progress=bar:force:noscroll --timeout=15 "${dl}" -O "${TMP_TAR}"; then
-            echo -e "${GREEN}当前地址下载成功${NC}"
+            echo -e "${GREEN}当前地址下载成功${NC}" >&2
             dl_ok=true
             break
         fi
-        echo -e "${YELLOW}下载超时/连接重置，切换下一个下载源${NC}"
+        echo -e "${YELLOW}下载超时/连接重置，切换下一个下载源${NC}" >&2
     done
     if [[ "${dl_ok}" != true ]]; then
-        echo -e "${RED}[错误] 所有下载地址均无法连接，终止安装${NC}"
+        echo -e "${RED}[错误] 所有下载地址均无法连接，终止安装${NC}" >&2
         rm -rf "${TMP_TAR}" "${TMP_DIR}"
         exit 1
     fi
@@ -144,20 +145,42 @@ download_frp_bin() {
     chmod +x "${TARGET_BIN}"
     rm -rf "${TMP_TAR}" "${TMP_DIR}"
     unset TMP_TAR TMP_DIR
-    echo -e "${GREEN}二进制文件就绪：${TARGET_BIN}${NC}"
+    echo -e "${GREEN}二进制文件就绪：${TARGET_BIN}${NC}" >&2
+}
+# ========== 公共函数：端口检测与防火墙提示（全部输出>&2，修复配置污染） ==========
+check_port_firewall() {
+    local PORT=$1
+    echo -e "${BLUE}\n[端口检测] 检查端口 ${PORT} 占用情况${NC}" >&2
+    if command -v ss &> /dev/null; then
+        if ss -tulpn | grep ":${PORT}" &> /dev/null; then
+            echo -e "${RED}[警告] 端口${PORT}已经被其他程序占用！请更换端口${NC}" >&2
+        else
+            echo -e "${GREEN}[正常] 端口${PORT}当前未被占用${NC}" >&2
+        fi
+    else
+        echo -e "${YELLOW}[提示] 未找到ss命令，跳过端口占用检测${NC}" >&2
+    fi
+    echo -e "${YELLOW}[防火墙放行提示] 请在防火墙开放端口 ${PORT}" >&2
+    if command -v ufw &> /dev/null; then
+        echo "ufw放行命令：ufw allow ${PORT}/tcp" >&2
+    elif command -v firewall-cmd &> /dev/null; then
+        echo "firewalld放行命令：firewall-cmd --add-port=${PORT}/tcp --permanent && firewall-cmd --reload" >&2
+    else
+        echo "当前未检测到ufw/firewalld，云服务器务必放行云端安全组端口！" >&2
+    fi
 }
 # ========== 交互式填写公共Web面板配置（传入默认端口） ==========
 input_web_config() {
     local DEF_WEB_PORT="$1"
-    echo -e "\n${BLUE}===== 配置Web管理面板 =====${NC}"
-    read -p "web面板监听地址(默认0.0.0.0)：" WEB_ADDR
+    echo -e "\n${BLUE}===== 配置Web管理面板 =====${NC}" >&2
+    read -p "web面板监听地址(默认0.0.0.0)：" WEB_ADDR >&2
     WEB_ADDR=${WEB_ADDR:-0.0.0.0}
-    read -p "web面板端口(默认${DEF_WEB_PORT})：" WEB_PORT
+    read -p "web面板端口(默认${DEF_WEB_PORT})：" WEB_PORT >&2
     WEB_PORT=${WEB_PORT:-${DEF_WEB_PORT}}
     check_port_firewall "${WEB_PORT}"
-    read -p "web面板用户名：" WEB_USER
-    read -s -p "web面板密码：" WEB_PWD
-    echo ""
+    read -p "web面板用户名：" WEB_USER >&2
+    read -s -p "web面板密码：" WEB_PWD >&2
+    echo "" >&2
 }
 # ========== frpc 批量交互式添加代理 ==========
 input_frpc_proxies() {
@@ -166,12 +189,12 @@ input_frpc_proxies() {
     local add_more="y"
     while [[ "${add_more,,}" == "y" ]]; do
         echo -e "\n${YELLOW}--- 新增一条代理隧道 ---${NC}" >&2
-        read -p "隧道名称name：" P_NAME
-        read -p "代理类型type(tcp/udp/http/https/stcp)：" P_TYPE
-        read -p "本地地址localIP(默认127.0.0.1)：" P_LOCAL_IP
+        read -p "隧道名称name：" P_NAME >&2
+        read -p "代理类型type(tcp/udp/http/https/stcp)：" P_TYPE >&2
+        read -p "本地地址localIP(默认127.0.0.1)：" P_LOCAL_IP >&2
         P_LOCAL_IP=${P_LOCAL_IP:-127.0.0.1}
-        read -p "本地端口localPort：" P_LOCAL_PORT
-        read -p "远程端口remotePort：" P_REMOTE_PORT
+        read -p "本地端口localPort：" P_LOCAL_PORT >&2
+        read -p "远程端口remotePort：" P_REMOTE_PORT >&2
         check_port_firewall "${P_REMOTE_PORT}"
         # 仅这段纯配置输出到标准输出，会被捕获到变量
         proxy_block+="[[proxies]]
@@ -188,8 +211,8 @@ remotePort = ${P_REMOTE_PORT}
 }
 # ========== 功能1：全新安装 ==========
 func_install() {
-    echo -e "${GREEN}===== 进入全新安装流程 =====${NC}"
-    read -p "请选择安装类型 [1=frpc客户端 | 2=frps服务端]：" TYPE
+    echo -e "${GREEN}===== 进入全新安装流程 =====${NC}" >&2
+    read -p "请选择安装类型 [1=frpc客户端 | 2=frps服务端]：" TYPE >&2
     local DEF_WEB_PORT
     if [[ "$TYPE" == "1" ]]; then
         BIN_NAME="frpc"
@@ -200,25 +223,25 @@ func_install() {
         SERVICE_NAME="frps.service"
         DEF_WEB_PORT="7500"
     else
-        echo -e "${RED}[错误] 只能输入数字1或2！${NC}"
+        echo -e "${RED}[错误] 只能输入数字1或2！${NC}" >&2
         exit 1
     fi
-    read -p "请输入FRP安装目录（默认 /opt/frp，直接回车使用默认）：" INSTALL_PATH
+    read -p "请输入FRP安装目录（默认 /opt/frp，直接回车使用默认）：" INSTALL_PATH >&2
     [[ -z "$INSTALL_PATH" ]] && INSTALL_PATH="/opt/frp"
     # 1. Web面板配置（传入对应默认端口）
     input_web_config "${DEF_WEB_PORT}"
     # 2. FRP基础连接配置（已删除TLS询问）
-    echo -e "\n${BLUE}===== FRP基础连接配置 =====${NC}"
+    echo -e "\n${BLUE}===== FRP基础连接配置 =====${NC}" >&2
     if [[ "${BIN_NAME}" == "frpc" ]]; then
-        read -p "FRP服务端地址serverAddr：" SERVER_ADDR
+        read -p "FRP服务端地址serverAddr：" SERVER_ADDR >&2
     else
-        read -p "服务端绑定监听地址bindAddr(默认0.0.0.0)：" SERVER_ADDR
+        read -p "服务端绑定监听地址bindAddr(默认0.0.0.0)：" SERVER_ADDR >&2
         SERVER_ADDR=${SERVER_ADDR:-0.0.0.0}
     fi
-    read -p "FRP通信端口serverPort/bindPort（默认7000，回车默认）：" SERVER_PORT
+    read -p "FRP通信端口serverPort/bindPort（默认7000，回车默认）：" SERVER_PORT >&2
     [[ -z "$SERVER_PORT" ]] && SERVER_PORT="7000"
-    read -s -p "FRP认证Token：" TOKEN
-    echo ""
+    read -s -p "FRP认证Token：" TOKEN >&2
+    echo "" >&2
     mkdir -p "${INSTALL_PATH}/bin" "${INSTALL_PATH}/conf"
     CONF_FILE="${INSTALL_PATH}/conf/${BIN_NAME}.toml"
     TARGET_BIN="${INSTALL_PATH}/bin/${BIN_NAME}"
@@ -254,15 +277,15 @@ EOF
     fi
     # 密钥配置文件权限加固
     chmod 600 "${CONF_FILE}"
-    echo -e "${GREEN}[安全] 已设置配置文件权限600，仅root可读${NC}"
-    echo -e "${YELLOW}\n配置文件已生成，选择操作：${NC}"
-    echo "回车直接跳过；输入 edit 使用nano编辑toml"
-    read -p "操作：" EDIT_OPT
+    echo -e "${GREEN}[安全] 已设置配置文件权限600，仅root可读${NC}" >&2
+    echo -e "${YELLOW}\n配置文件已生成，选择操作：${NC}" >&2
+    echo "回车直接跳过；输入 edit 使用nano编辑toml" >&2
+    read -p "操作：" EDIT_OPT >&2
     if [[ "${EDIT_OPT}" == "edit" ]]; then
         if command -v nano &> /dev/null; then
             nano "${CONF_FILE}"
         else
-            echo -e "${RED}未安装nano，请手动编辑：${CONF_FILE}${NC}"
+            echo -e "${RED}未安装nano，请手动编辑：${CONF_FILE}${NC}" >&2
         fi
     fi
     # 创建systemd服务
@@ -282,24 +305,24 @@ LimitNOFILE=65535
 WantedBy=multi-user.target
 EOF
     systemctl daemon-reload
-    echo -e "${GREEN}\n=============================================${NC}"
-    echo -e "✅ ${BIN_NAME} v${FRP_VERSION} 安装完成！"
-    echo -e "安装目录：${INSTALL_PATH}"
-    echo -e "配置文件：${CONF_FILE}"
-    echo -e "服务名称：${SERVICE_NAME}"
-    echo -e "${GREEN}常用操作命令（附带说明）：${NC}"
-    echo "systemctl start ${SERVICE_NAME}        # 立即启动服务"
-    echo "systemctl enable ${SERVICE_NAME}       # 设置开机自动启动"
-    echo "systemctl status ${SERVICE_NAME}       # 查看服务运行状态"
-    echo "journalctl -u ${SERVICE_NAME} -f       # 实时滚动查看运行日志"
-    echo "systemctl restart ${SERVICE_NAME}      # 重启服务（修改配置后执行）"
-    echo "systemctl stop ${SERVICE_NAME}         # 停止服务"
-    echo -e "${GREEN}=============================================${NC}"
+    echo -e "${GREEN}\n=============================================${NC}" >&2
+    echo -e "✅ ${BIN_NAME} v${FRP_VERSION} 安装完成！" >&2
+    echo -e "安装目录：${INSTALL_PATH}" >&2
+    echo -e "配置文件：${CONF_FILE}" >&2
+    echo -e "服务名称：${SERVICE_NAME}" >&2
+    echo -e "${GREEN}常用操作命令（附带说明）：${NC}" >&2
+    echo "systemctl start ${SERVICE_NAME}        # 立即启动服务" >&2
+    echo "systemctl enable ${SERVICE_NAME}       # 设置开机自动启动" >&2
+    echo "systemctl status ${SERVICE_NAME}       # 查看服务运行状态" >&2
+    echo "journalctl -u ${SERVICE_NAME} -f       # 实时滚动查看运行日志" >&2
+    echo "systemctl restart ${SERVICE_NAME}      # 重启服务（修改配置后执行）" >&2
+    echo "systemctl stop ${SERVICE_NAME}         # 停止服务" >&2
+    echo -e "${GREEN}=============================================${NC}" >&2
 }
 # ========== 功能2：升级frp ==========
 func_update() {
-    echo -e "${GREEN}===== 进入FRP升级流程（保留配置） =====${NC}"
-    read -p "升级 [1=frpc客户端 | 2=frps服务端]：" TYPE
+    echo -e "${GREEN}===== 进入FRP升级流程（保留配置） =====${NC}" >&2
+    read -p "升级 [1=frpc客户端 | 2=frps服务端]：" TYPE >&2
     if [[ "$TYPE" == "1" ]]; then
         BIN_NAME="frpc"
         SERVICE_NAME="frpc.service"
@@ -307,72 +330,72 @@ func_update() {
         BIN_NAME="frps"
         SERVICE_NAME="frps.service"
     else
-        echo -e "${RED}输入错误！${NC}"
+        echo -e "${RED}输入错误！${NC}" >&2
         exit 1
     fi
-    read -p "输入FRP安装目录（默认 /opt/frp，回车默认）：" INSTALL_PATH
+    read -p "输入FRP安装目录（默认 /opt/frp，回车默认）：" INSTALL_PATH >&2
     [[ -z "$INSTALL_PATH" ]] && INSTALL_PATH="/opt/frp"
     TARGET_BIN="${INSTALL_PATH}/bin/${BIN_NAME}"
     if [[ ! -f "${TARGET_BIN}" ]]; then
-        echo -e "${RED}[错误] 找不到程序 ${TARGET_BIN}，目录错误！${NC}"
+        echo -e "${RED}[错误] 找不到程序 ${TARGET_BIN}，目录错误！${NC}" >&2
         exit 1
     fi
     get_latest_frp_version
     BACKUP_BIN="${TARGET_BIN}.bak.$(date +%Y%m%d_%H%M%S)"
-    echo -e "${BLUE}备份旧二进制至：${BACKUP_BIN}${NC}"
+    echo -e "${BLUE}备份旧二进制至：${BACKUP_BIN}${NC}" >&2
     cp "${TARGET_BIN}" "${BACKUP_BIN}"
     download_frp_bin "${BIN_NAME}"
-    echo -e "${BLUE}重启服务 ${SERVICE_NAME}${NC}"
+    echo -e "${BLUE}重启服务 ${SERVICE_NAME}${NC}" >&2
     systemctl stop "${SERVICE_NAME}"
     systemctl start "${SERVICE_NAME}"
-    echo -e "${GREEN}\n✅ ${BIN_NAME}升级完成！${NC}"
-    echo "备份文件：${BACKUP_BIN}"
-    echo "回滚命令示例：mv ${BACKUP_BIN} ${TARGET_BIN} && systemctl restart ${SERVICE_NAME}"
+    echo -e "${GREEN}\n✅ ${BIN_NAME}升级完成！${NC}" >&2
+    echo "备份文件：${BACKUP_BIN}" >&2
+    echo "回滚命令示例：mv ${BACKUP_BIN} ${TARGET_BIN} && systemctl restart ${SERVICE_NAME}" >&2
 }
 # ========== 功能3：卸载frp ==========
 func_uninstall() {
-    echo -e "${RED}===== 进入FRP卸载流程 =====${NC}"
-    read -p "卸载 [1=frpc客户端 | 2=frps服务端]：" TYPE
+    echo -e "${RED}===== 进入FRP卸载流程 =====${NC}" >&2
+    read -p "卸载 [1=frpc客户端 | 2=frps服务端]：" TYPE >&2
     if [[ "$TYPE" == "1" ]]; then
         SERVICE_NAME="frpc.service"
     elif [[ "$TYPE" == "2" ]]; then
         SERVICE_NAME="frps.service"
     else
-        echo -e "${RED}输入错误！${NC}"
+        echo -e "${RED}输入错误！${NC}" >&2
         exit 1
     fi
     systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
     systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
     rm -f "/etc/systemd/system/${SERVICE_NAME}"
     systemctl daemon-reload
-    read -p "输入FRP安装目录（例 /opt/frp），确认删除目录：" DIR
+    read -p "输入FRP安装目录（例 /opt/frp），确认删除目录：" DIR >&2
     if [[ -d "${DIR}" ]]; then
-        read -p "确认彻底删除目录 ${DIR} 所有文件？[y/n] " DEL_CONFIRM
+        read -p "确认彻底删除目录 ${DIR} 所有文件？[y/n] " DEL_CONFIRM >&2
         if [[ "${DEL_CONFIRM,,}" == "y" ]]; then
             rm -rf "${DIR}"
-            echo -e "${GREEN}目录 ${DIR} 已删除${NC}"
+            echo -e "${GREEN}目录 ${DIR} 已删除${NC}" >&2
         else
-            echo -e "${YELLOW}已取消删除目录${NC}"
+            echo -e "${YELLOW}已取消删除目录${NC}" >&2
         fi
     fi
-    echo -e "${GREEN}卸载完成${NC}"
+    echo -e "${GREEN}卸载完成${NC}" >&2
 }
 # ========== 主菜单 ==========
 main() {
     check_dependencies
-    echo -e "${GREEN}=============================================${NC}"
-    echo -e "          FRP 一体化管理脚本 amd64 systemd"
-    echo -e "${GREEN}=============================================${NC}"
-    echo "1) 全新安装 frpc / frps（交互式完整配置）"
-    echo "2) 升级 frp 二进制（保留配置）"
-    echo "3) 卸载 frpc / frps（带二次确认）"
-    echo -e "${GREEN}=============================================${NC}"
-    read -p "请选择功能编号(1/2/3)：" MENU_OPT
+    echo -e "${GREEN}=============================================${NC}" >&2
+    echo -e "          FRP 一体化管理脚本 amd64 systemd" >&2
+    echo -e "${GREEN}=============================================${NC}" >&2
+    echo "1) 全新安装 frpc / frps（交互式完整配置）" >&2
+    echo "2) 升级 frp 二进制（保留配置）" >&2
+    echo "3) 卸载 frpc / frps（带二次确认）" >&2
+    echo -e "${GREEN}=============================================${NC}" >&2
+    read -p "请选择功能编号(1/2/3)：" MENU_OPT >&2
     case "${MENU_OPT}" in
         1) func_install ;;
         2) func_update ;;
         3) func_uninstall ;;
-        *) echo -e "${RED}无效选项，退出${NC}"; exit 1 ;;
+        *) echo -e "${RED}无效选项，退出${NC}" >&2; exit 1 ;;
     esac
 }
 # 启动入口
