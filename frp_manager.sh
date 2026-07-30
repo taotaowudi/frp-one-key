@@ -1,7 +1,5 @@
 #!/bin/bash
 # FRP Manager 一体化脚本 安装｜升级｜卸载 amd64 systemd
-# 增强：依赖自动安装、web端口区分默认、移除tls配置、下载进度/速度实时显示
-# 修复：所有交互/端口检测日志重定向stderr，避免彩色日志混入toml配置
 set -euo pipefail
 # 捕获Ctrl+C清理临时文件
 trap '[[ -n "${TMP_TAR:-}" && -f "${TMP_TAR}" ]] && rm -f "${TMP_TAR}"; [[ -n "${TMP_DIR:-}" && -d "${TMP_DIR}" ]] && rm -rf "${TMP_DIR}"; echo -e "\n${YELLOW}[提示] 已清理临时文件，脚本退出${NC}" >&2; exit 1' SIGINT SIGTERM
@@ -354,34 +352,87 @@ func_update() {
 }
 # ========== 功能3：卸载frp ==========
 func_uninstall() {
-    echo -e "${RED}===== 进入FRP卸载流程 =====${NC}" >&2
+    set +e
+    # 强制root校验
+    if [[ $EUID -ne 0 ]]; then
+        echo -e "${RED}[错误] 卸载必须使用root/sudo执行脚本！${NC}" >&2
+        exit 1
+    fi
+
+    echo -e "${RED}===== 进入FRP彻底卸载流程 =====${NC}" >&2
     read -p "卸载 [1=frpc客户端 | 2=frps服务端]：" TYPE >&2
     if [[ "$TYPE" == "1" ]]; then
         SERVICE_NAME="frpc.service"
+        BIN_NAME="frpc"
     elif [[ "$TYPE" == "2" ]]; then
         SERVICE_NAME="frps.service"
+        BIN_NAME="frps"
     else
-        echo -e "${RED}输入错误！${NC}" >&2
+        echo -e "${RED}输入错误！只能输入1或2${NC}" >&2
         exit 1
     fi
-    systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
-    systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
+
+    # 1. 停止服务、查杀残留进程
+    echo -e "${BLUE}[1/5] 停止并禁用服务 ${SERVICE_NAME}${NC}" >&2
+    systemctl stop "${SERVICE_NAME}" 2>/dev/null || echo -e "${YELLOW}服务未运行，跳过停止${NC}" >&2
+    systemctl disable "${SERVICE_NAME}" 2>/dev/null || echo -e "${YELLOW}服务未开机自启，跳过禁用${NC}" >&2
+    pkill -f "${BIN_NAME}" 2>/dev/null
+    sleep 0.5
+
+    # 2. 清理systemd单元文件与自启软链接
+    echo -e "${BLUE}[2/5] 删除systemd服务单元与自启软链接${NC}" >&2
     rm -f "/etc/systemd/system/${SERVICE_NAME}"
+    rm -f "/etc/systemd/system/multi-user.target.wants/${SERVICE_NAME}"
     systemctl daemon-reload
-    read -p "输入FRP安装目录（例 /opt/frp），确认删除目录：" DIR >&2
+    systemctl reset-failed
+
+    # 3. 安全读取安装目录，拦截危险路径
+    read -p "输入FRP安装目录（默认 /opt/frp，直接回车）：" DIR >&2
+    [[ -z "${DIR}" ]] && DIR="/opt/frp"
+    if [[ "${DIR}" == "/" || "${DIR}" == "/usr" || "${DIR}" == "/etc" || "${DIR}" == "/bin" || "${DIR}" == "/boot" ]]; then
+        echo -e "${RED}[高危拦截] 禁止删除系统关键目录，终止卸载${NC}" >&2
+        set -e
+        exit 1
+    fi
+
+    # 删除程序目录
     if [[ -d "${DIR}" ]]; then
-        read -p "确认彻底删除目录 ${DIR} 所有文件？[y/n] " DEL_CONFIRM >&2
+        echo -e "${YELLOW}待删除目录：${DIR}，内部所有文件将被清除${NC}" >&2
+        read -p "确认彻底删除目录？[y/n] " DEL_CONFIRM >&2
         if [[ "${DEL_CONFIRM,,}" == "y" ]]; then
             rm -rf "${DIR}"
-            echo -e "${GREEN}目录 ${DIR} 已删除${NC}" >&2
+            echo -e "${GREEN}✅ 程序目录 ${DIR} 已全部删除${NC}" >&2
         else
-            echo -e "${YELLOW}已取消删除目录${NC}" >&2
+            echo -e "${YELLOW}已取消删除程序目录${NC}" >&2
         fi
+    else
+        echo -e "${YELLOW}目录 ${DIR} 不存在，跳过文件删除${NC}" >&2
     fi
-    echo -e "${GREEN}卸载完成${NC}" >&2
+
+    # 4. 清理全局临时/日志残留
+    echo -e "${BLUE}[3/5] 清理系统临时与日志残留${NC}" >&2
+    find /tmp -name "frp*" -delete 2>/dev/null
+    find /var/log -name "*frp*" -delete 2>/dev/null
+    find /usr/local/bin -name "${BIN_NAME}" -delete 2>/dev/null
+
+    # 5. 防火墙清理提示
+    echo -e "${YELLOW}[提示] 如需清理防火墙放行端口，手动执行对应命令：${NC}" >&2
+    echo "ufw delete allow 7000/tcp; ufw delete allow 7400/tcp; ufw delete allow 7500/tcp" >&2
+    echo "firewall-cmd --remove-port=7000/tcp --permanent; firewall-cmd --reload" >&2
+
+    echo -e "${GREEN}\n=============================================${NC}" >&2
+    echo -e "✅ ${BIN_NAME} 卸载完成，无systemd残留！" >&2
+    echo -e "校验残留命令：systemctl list-unit-files | grep frp" >&2
+    echo -e "${GREEN}=============================================${NC}" >&2
+    set -e
 }
 # ========== 主菜单 ==========
 main() {
+    # 全局root权限校验，所有功能必须root运行
+    if [[ $EUID -ne 0 ]]; then
+        echo -e "${RED}[致命错误] 本脚本必须使用 root / sudo 执行！${NC}" >&2
+        exit 1
+    fi
     check_dependencies
     echo -e "${GREEN}=============================================${NC}" >&2
     echo -e "          FRP 一体化管理脚本 amd64 systemd" >&2
