@@ -1,14 +1,17 @@
 #!/bin/bash
 # FRP Manager 一体化脚本 安装｜升级｜卸载 amd64 systemd
+# 功能：自动清理防火墙 + 执行完成自删脚本
 set -euo pipefail
 # 捕获Ctrl+C清理临时文件
 trap '[[ -n "${TMP_TAR:-}" && -f "${TMP_TAR}" ]] && rm -f "${TMP_TAR}"; [[ -n "${TMP_DIR:-}" && -d "${TMP_DIR}" ]] && rm -rf "${TMP_DIR}"; echo -e "\n${YELLOW}[提示] 已清理临时文件，脚本退出${NC}" >&2; exit 1' SIGINT SIGTERM
+
 # ========== 颜色定义 ==========
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
+
 # ========== 全局常量 ==========
 ARCH="amd64"
 FALLBACK_FR_VERSION="0.70.1"
@@ -19,7 +22,48 @@ FRP_DEFAULT_PORTS=(7000 7400 7500)
 # 记录脚本自身完整路径
 SELF_SCRIPT_PATH=$(realpath "$0")
 
-# ========== 新增公共函数：卸载时自动清理FRP防火墙端口 ==========
+# ========== 公共函数1：依赖检查 + 自动安装【前置定义】 ==========
+check_dependencies() {
+    local missing=()
+    if ! command -v curl &> /dev/null; then
+        missing+=("curl")
+    fi
+    if ! command -v wget &> /dev/null; then
+        missing+=("wget")
+    fi
+    if ! command -v jq &> /dev/null; then
+        missing+=("jq")
+    fi
+    if ! command -v systemctl &> /dev/null; then
+        echo -e "${RED}[错误] 当前系统不支持 systemd，脚本无法运行！${NC}" >&2
+        exit 1
+    fi
+    if [[ ${#missing[@]} -eq 0 ]]; then
+        echo -e "${GREEN}[校验] 所有依赖已就绪${NC}" >&2
+        return 0
+    fi
+    echo -e "${YELLOW}[警告] 缺失依赖组件：${missing[*]}${NC}" >&2
+    read -p "是否自动安装缺失依赖？[y/n] " INSTALL_DEP >&2
+    if [[ "${INSTALL_DEP,,}" != "y" ]]; then
+        echo -e "${BLUE}Debian/Ubuntu：apt update && apt install curl wget jq -y${NC}" >&2
+        echo -e "${BLUE}CentOS/Rocky：yum install curl wget jq -y${NC}" >&2
+        exit 1
+    fi
+    # 判断系统包管理器安装
+    if command -v apt &> /dev/null; then
+        apt update && apt install curl wget jq -y
+    elif command -v yum &> /dev/null; then
+        yum install curl wget jq -y
+    elif command -v dnf &> /dev/null; then
+        dnf install curl wget jq -y
+    else
+        echo -e "${RED}[错误] 无法识别系统包管理器，请手动安装 curl wget jq${NC}" >&2
+        exit 1
+    fi
+    echo -e "${GREEN}[完成] 依赖安装完毕，继续执行脚本${NC}" >&2
+}
+
+# ========== 公共函数2：卸载时自动清理FRP防火墙端口 ==========
 clean_firewall_rules() {
     echo -e "${BLUE}[自动清理] 开始移除FRP默认端口防火墙放行规则${NC}" >&2
     # 处理ufw防火墙
@@ -55,7 +99,7 @@ clean_firewall_rules() {
     echo -e "${GREEN}[完成] FRP防火墙规则清理结束${NC}" >&2
 }
 
-# ========== 公共函数：拉取最新版本 ==========
+# ========== 公共函数3：拉取最新版本 ==========
 get_latest_frp_version() {
     echo -e "${BLUE}\n正在获取FRP最新版本号...${NC}" >&2
     local VER=""
@@ -108,7 +152,8 @@ get_latest_frp_version() {
         echo -e "${GREEN}✅ 检测到最新frp版本：v${FRP_VERSION}${NC}" >&2
     fi
 }
-# ========== 公共函数：下载frp二进制（带进度+速度） ==========
+
+# ========== 公共函数4：下载frp二进制（带进度+速度） ==========
 download_frp_bin() {
     local BIN_NAME="$1"
     TMP_TAR=$(mktemp)
@@ -146,7 +191,8 @@ download_frp_bin() {
     unset TMP_TAR TMP_DIR
     echo -e "${GREEN}二进制文件就绪：${TARGET_BIN}${NC}" >&2
 }
-# ========== 公共函数：端口检测与防火墙提示（全部输出>&2，防止配置污染） ==========
+
+# ========== 公共函数5：端口检测与防火墙提示 ==========
 check_port_firewall() {
     local PORT=$1
     echo -e "${BLUE}\n[端口检测] 检查端口 ${PORT} 占用情况${NC}" >&2
@@ -168,7 +214,8 @@ check_port_firewall() {
         echo "当前未检测到ufw/firewalld，云服务器务必放行云端安全组端口！" >&2
     fi
 }
-# ========== 交互式填写公共Web面板配置（传入默认端口） ==========
+
+# ========== 公共函数6：交互式填写Web面板配置 ==========
 input_web_config() {
     local DEF_WEB_PORT="$1"
     echo -e "\n${BLUE}===== 配置Web管理面板 =====${NC}" >&2
@@ -181,7 +228,8 @@ input_web_config() {
     read -s -p "web面板密码：" WEB_PWD >&2
     echo "" >&2
 }
-# ========== frpc 批量交互式添加代理 ==========
+
+# ========== 公共函数7：frpc批量添加代理隧道 ==========
 input_frpc_proxies() {
     echo -e "\n${BLUE}===== 开始配置隧道代理 =====${NC}" >&2
     local proxy_block=""
@@ -195,7 +243,6 @@ input_frpc_proxies() {
         read -p "本地端口localPort：" P_LOCAL_PORT >&2
         read -p "远程端口remotePort：" P_REMOTE_PORT >&2
         check_port_firewall "${P_REMOTE_PORT}"
-        # 仅这段纯配置输出到标准输出，会被捕获到变量
         proxy_block+="[[proxies]]
 name = \"${P_NAME}\"
 type = \"${P_TYPE}\"
@@ -205,10 +252,10 @@ remotePort = ${P_REMOTE_PORT}
 "
         read -p "是否继续添加下一条隧道？[y/n] " add_more >&2
     done
-    # 只返回纯净代理配置文本
     echo -n "${proxy_block}"
 }
-# ========== 功能1：全新安装 ==========
+
+# ========== 功能函数1：全新安装 ==========
 func_install() {
     echo -e "${GREEN}===== 进入全新安装流程 =====${NC}" >&2
     read -p "请选择安装类型 [1=frpc客户端 | 2=frps服务端]：" TYPE >&2
@@ -227,9 +274,7 @@ func_install() {
     fi
     read -p "请输入FRP安装目录（默认 /opt/frp，直接回车使用默认）：" INSTALL_PATH >&2
     [[ -z "$INSTALL_PATH" ]] && INSTALL_PATH="/opt/frp"
-    # 1. Web面板配置（传入对应默认端口）
     input_web_config "${DEF_WEB_PORT}"
-    # 2. FRP基础连接配置
     echo -e "\n${BLUE}===== FRP基础连接配置 =====${NC}" >&2
     if [[ "${BIN_NAME}" == "frpc" ]]; then
         read -p "FRP服务端地址serverAddr：" SERVER_ADDR >&2
@@ -246,7 +291,6 @@ func_install() {
     TARGET_BIN="${INSTALL_PATH}/bin/${BIN_NAME}"
     get_latest_frp_version
     download_frp_bin "${BIN_NAME}"
-    # 生成TOML配置
     > "${CONF_FILE}"
     if [[ "${BIN_NAME}" == "frpc" ]]; then
         cat >> "${CONF_FILE}" <<EOF
@@ -258,7 +302,6 @@ webServer.port = ${WEB_PORT}
 webServer.user = "${WEB_USER}"
 webServer.password = "${WEB_PWD}"
 EOF
-        # 交互式追加所有代理
         proxy_content=$(input_frpc_proxies)
         echo -e "${proxy_content}" >> "${CONF_FILE}"
     else
@@ -274,7 +317,6 @@ webServer.password = "${WEB_PWD}"
 # vhostHTTPSPort = 8443
 EOF
     fi
-    # 密钥配置文件权限加固
     chmod 600 "${CONF_FILE}"
     echo -e "${GREEN}[安全] 已设置配置文件权限600，仅root可读${NC}" >&2
     echo -e "${YELLOW}\n配置文件已生成，选择操作：${NC}" >&2
@@ -287,7 +329,6 @@ EOF
             echo -e "${RED}未安装nano，请手动编辑：${CONF_FILE}${NC}" >&2
         fi
     fi
-    # 创建systemd服务
     SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}"
     cat > "${SERVICE_PATH}" <<EOF
 [Unit]
@@ -318,7 +359,8 @@ EOF
     echo "systemctl stop ${SERVICE_NAME}         # 停止服务" >&2
     echo -e "${GREEN}=============================================${NC}" >&2
 }
-# ========== 功能2：升级frp ==========
+
+# ========== 功能函数2：升级frp ==========
 func_update() {
     echo -e "${GREEN}===== 进入FRP升级流程（保留配置） =====${NC}" >&2
     read -p "升级 [1=frpc客户端 | 2=frps服务端]：" TYPE >&2
@@ -351,10 +393,10 @@ func_update() {
     echo "备份文件：${BACKUP_BIN}" >&2
     echo "回滚命令示例：mv ${BACKUP_BIN} ${TARGET_BIN} && systemctl restart ${SERVICE_NAME}" >&2
 }
-# ========== 功能3：卸载frp ==========
+
+# ========== 功能函数3：卸载frp ==========
 func_uninstall() {
     set +e
-    # 强制root校验
     if [[ $EUID -ne 0 ]]; then
         echo -e "${RED}[错误] 卸载必须使用root/sudo执行脚本！${NC}" >&2
         exit 1
@@ -371,25 +413,18 @@ func_uninstall() {
         echo -e "${RED}输入错误！只能输入1或2${NC}" >&2
         exit 1
     fi
-    # 1. 停止并禁用服务、查杀残留进程
     echo -e "${BLUE}[1/6] 停止并禁用服务 ${SERVICE_NAME}${NC}" >&2
     systemctl stop "${SERVICE_NAME}" 2>/dev/null || echo -e "${YELLOW}服务未运行，跳过停止${NC}" >&2
     systemctl disable "${SERVICE_NAME}" 2>/dev/null || echo -e "${YELLOW}服务未开机自启，跳过禁用${NC}" >&2
     pkill -f "${BIN_NAME}" 2>/dev/null
     sleep 0.5
-
-    # 2. 自动清理防火墙规则
     echo -e "${BLUE}[2/6] 自动清理本地防火墙FRP端口放行规则${NC}" >&2
     clean_firewall_rules
-
-    # 3. 清理systemd单元文件与自启软链接
     echo -e "${BLUE}[3/6] 删除systemd服务单元与自启软链接${NC}" >&2
     rm -f "/etc/systemd/system/${SERVICE_NAME}"
     rm -f "/etc/systemd/system/multi-user.target.wants/${SERVICE_NAME}"
     systemctl daemon-reload
     systemctl reset-failed
-
-    # 4. 安全读取安装目录，拦截危险路径
     read -p "输入FRP安装目录（默认 /opt/frp，直接回车）：" DIR >&2
     [[ -z "${DIR}" ]] && DIR="/opt/frp"
     if [[ "${DIR}" == "/" || "${DIR}" == "/usr" || "${DIR}" == "/etc" || "${DIR}" == "/bin" || "${DIR}" == "/boot" ]]; then
@@ -397,7 +432,6 @@ func_uninstall() {
         set -e
         exit 1
     fi
-    # 删除程序目录
     if [[ -d "${DIR}" ]]; then
         echo -e "${YELLOW}待删除目录：${DIR}，内部所有文件将被清除${NC}" >&2
         read -p "确认彻底删除目录？[y/n] " DEL_CONFIRM >&2
@@ -410,14 +444,10 @@ func_uninstall() {
     else
         echo -e "${YELLOW}目录 ${DIR} 不存在，跳过文件删除${NC}" >&2
     fi
-
-    # 5. 清理全局临时/日志残留
     echo -e "${BLUE}[4/6] 清理系统临时与日志残留${NC}" >&2
     find /tmp -name "frp*" -delete 2>/dev/null
     find /var/log -name "*frp*" -delete 2>/dev/null
     find /usr/local/bin -name "${BIN_NAME}" -delete 2>/dev/null
-
-    # 6. 云服务器安全组手动提示
     echo -e "${YELLOW}[重要提示] 云服务器需前往控制台安全组手动关闭7000/7400/7500端口${NC}" >&2
     echo -e "${GREEN}\n=============================================${NC}" >&2
     echo -e "✅ ${BIN_NAME} 卸载完成，systemd、防火墙、程序文件均清理完毕！" >&2
@@ -426,7 +456,7 @@ func_uninstall() {
     set -e
 }
 
-# ========== 脚本清理 ==========
+# ========== 自删脚本函数 ==========
 self_delete_script() {
     echo -e "\n${BLUE}[空间清理] 执行完毕，准备自动删除脚本文件：${SELF_SCRIPT_PATH}${NC}" >&2
     set +e
@@ -439,13 +469,13 @@ self_delete_script() {
     fi
 }
 
-# ========== 主菜单 ==========
+# ========== 主入口函数【最后定义】 ==========
 main() {
-    # 全局root权限校验，所有功能必须root运行
     if [[ $EUID -ne 0 ]]; then
         echo -e "${RED}[致命错误] 本脚本必须使用 root / sudo 执行！${NC}" >&2
         exit 1
     fi
+    # 现在 check_dependencies 已经提前定义，不会报错
     check_dependencies
     echo -e "${GREEN}=============================================${NC}" >&2
     echo -e "          FRP 一体化管理脚本 amd64 systemd" >&2
@@ -461,8 +491,9 @@ main() {
         3) func_uninstall ;;
         *) echo -e "${RED}无效选项，退出${NC}" >&2; exit 1 ;;
     esac
-    # 所有功能执行完毕后，调用自删函数
+    # 执行完自动删除自身
     self_delete_script
 }
-# 启动入口
+
+# 启动脚本
 main
