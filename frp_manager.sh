@@ -1,15 +1,3 @@
-# FRP Manager 一体化管理脚本
-<div align="center">
-
-```text
- _____ ____  ____  ____  
-| ____| __ )| __ )| __ ) 
-|  _| |  _ \|  _ \|  _ \ 
-| |___| |_) | |_) | |_) |
-|_____|____/|____/|____/ 
-FRP One-Click Manage Script | amd64 systemd
-Install / Update / Uninstall All-In-One
-
 #!/bin/bash
 # FRP Manager 一体化脚本 安装｜升级｜卸载 amd64 systemd
 # 功能：自动清理防火墙 + 执行完成自删脚本
