@@ -239,7 +239,6 @@ func_install() {
     fi
     read -p "FRP通信端口serverPort/bindPort（默认7000，回车默认）：" SERVER_PORT
     [[ -z "$SERVER_PORT" ]] && SERVER_PORT="7000"
-    check_port_firewall "${SERVER_PORT}"
     read -s -p "FRP认证Token：" TOKEN
     echo ""
     mkdir -p "${INSTALL_PATH}/bin" "${INSTALL_PATH}/conf"
