@@ -14,46 +14,47 @@ ARCH="amd64"
 FALLBACK_FR_VERSION="0.70.1"
 GH_API="https://api.github.com/repos/fatedier/frp/releases/latest"
 GH_API_PROXY="https://ghproxy.com/${GH_API}"
-# ========== 公共函数：依赖检查 + 自动安装 ==========
-check_dependencies() {
-    local missing=()
-    if ! command -v curl &> /dev/null; then
-        missing+=("curl")
+# FRP默认端口常量（用于防火墙批量清理）
+FRP_DEFAULT_PORTS=(7000 7400 7500)
+# 记录脚本自身完整路径
+SELF_SCRIPT_PATH=$(realpath "$0")
+
+# ========== 新增公共函数：卸载时自动清理FRP防火墙端口 ==========
+clean_firewall_rules() {
+    echo -e "${BLUE}[自动清理] 开始移除FRP默认端口防火墙放行规则${NC}" >&2
+    # 处理ufw防火墙
+    if command -v ufw &> /dev/null; then
+        for port in "${FRP_DEFAULT_PORTS[@]}"; do
+            set +e
+            ufw delete allow ${port}/tcp 2>/dev/null
+            set -e
+            echo -e "${GREEN}[ufw] 已删除端口 ${port}/tcp 放行规则${NC}" >&2
+        done
+        echo -e "${BLUE}[ufw] 重载防火墙规则生效${NC}" >&2
+        set +e
+        ufw reload 2>/dev/null
+        set -e
     fi
-    if ! command -v wget &> /dev/null; then
-        missing+=("wget")
+    # 处理firewalld防火墙
+    if command -v firewall-cmd &> /dev/null; then
+        for port in "${FRP_DEFAULT_PORTS[@]}"; do
+            set +e
+            firewall-cmd --remove-port=${port}/tcp --permanent 2>/dev/null
+            set -e
+            echo -e "${GREEN}[firewalld] 已删除永久端口 ${port}/tcp${NC}" >&2
+        done
+        echo -e "${BLUE}[firewalld] 重载防火墙永久配置${NC}" >&2
+        set +e
+        firewall-cmd --reload 2>/dev/null
+        set -e
     fi
-    if ! command -v jq &> /dev/null; then
-        missing+=("jq")
+    # 无防火墙提示
+    if ! command -v ufw &> /dev/null && ! command -v firewall-cmd &> /dev/null; then
+        echo -e "${YELLOW}[提示] 未检测到ufw/firewalld本地防火墙，跳过本地端口清理，记得云服务器安全组手动关闭对应端口${NC}" >&2
     fi
-    if ! command -v systemctl &> /dev/null; then
-        echo -e "${RED}[错误] 当前系统不支持 systemd，脚本无法运行！${NC}" >&2
-        exit 1
-    fi
-    if [[ ${#missing[@]} -eq 0 ]]; then
-        echo -e "${GREEN}[校验] 所有依赖已就绪${NC}" >&2
-        return 0
-    fi
-    echo -e "${YELLOW}[警告] 缺失依赖组件：${missing[*]}${NC}" >&2
-    read -p "是否自动安装缺失依赖？[y/n] " INSTALL_DEP >&2
-    if [[ "${INSTALL_DEP,,}" != "y" ]]; then
-        echo -e "${BLUE}Debian/Ubuntu：apt update && apt install curl wget jq -y${NC}" >&2
-        echo -e "${BLUE}CentOS/Rocky：yum install curl wget jq -y${NC}" >&2
-        exit 1
-    fi
-    # 判断系统包管理器安装
-    if command -v apt &> /dev/null; then
-        apt update && apt install curl wget jq -y
-    elif command -v yum &> /dev/null; then
-        yum install curl wget jq -y
-    elif command -v dnf &> /dev/null; then
-        dnf install curl wget jq -y
-    else
-        echo -e "${RED}[错误] 无法识别系统包管理器，请手动安装 curl wget jq${NC}" >&2
-        exit 1
-    fi
-    echo -e "${GREEN}[完成] 依赖安装完毕，继续执行脚本${NC}" >&2
+    echo -e "${GREEN}[完成] FRP防火墙规则清理结束${NC}" >&2
 }
+
 # ========== 公共函数：拉取最新版本 ==========
 get_latest_frp_version() {
     echo -e "${BLUE}\n正在获取FRP最新版本号...${NC}" >&2
@@ -358,7 +359,6 @@ func_uninstall() {
         echo -e "${RED}[错误] 卸载必须使用root/sudo执行脚本！${NC}" >&2
         exit 1
     fi
-
     echo -e "${RED}===== 进入FRP彻底卸载流程 =====${NC}" >&2
     read -p "卸载 [1=frpc客户端 | 2=frps服务端]：" TYPE >&2
     if [[ "$TYPE" == "1" ]]; then
@@ -371,22 +371,25 @@ func_uninstall() {
         echo -e "${RED}输入错误！只能输入1或2${NC}" >&2
         exit 1
     fi
-
-    # 1. 停止服务、查杀残留进程
-    echo -e "${BLUE}[1/5] 停止并禁用服务 ${SERVICE_NAME}${NC}" >&2
+    # 1. 停止并禁用服务、查杀残留进程
+    echo -e "${BLUE}[1/6] 停止并禁用服务 ${SERVICE_NAME}${NC}" >&2
     systemctl stop "${SERVICE_NAME}" 2>/dev/null || echo -e "${YELLOW}服务未运行，跳过停止${NC}" >&2
     systemctl disable "${SERVICE_NAME}" 2>/dev/null || echo -e "${YELLOW}服务未开机自启，跳过禁用${NC}" >&2
     pkill -f "${BIN_NAME}" 2>/dev/null
     sleep 0.5
 
-    # 2. 清理systemd单元文件与自启软链接
-    echo -e "${BLUE}[2/5] 删除systemd服务单元与自启软链接${NC}" >&2
+    # 2. 自动清理防火墙规则
+    echo -e "${BLUE}[2/6] 自动清理本地防火墙FRP端口放行规则${NC}" >&2
+    clean_firewall_rules
+
+    # 3. 清理systemd单元文件与自启软链接
+    echo -e "${BLUE}[3/6] 删除systemd服务单元与自启软链接${NC}" >&2
     rm -f "/etc/systemd/system/${SERVICE_NAME}"
     rm -f "/etc/systemd/system/multi-user.target.wants/${SERVICE_NAME}"
     systemctl daemon-reload
     systemctl reset-failed
 
-    # 3. 安全读取安装目录，拦截危险路径
+    # 4. 安全读取安装目录，拦截危险路径
     read -p "输入FRP安装目录（默认 /opt/frp，直接回车）：" DIR >&2
     [[ -z "${DIR}" ]] && DIR="/opt/frp"
     if [[ "${DIR}" == "/" || "${DIR}" == "/usr" || "${DIR}" == "/etc" || "${DIR}" == "/bin" || "${DIR}" == "/boot" ]]; then
@@ -394,7 +397,6 @@ func_uninstall() {
         set -e
         exit 1
     fi
-
     # 删除程序目录
     if [[ -d "${DIR}" ]]; then
         echo -e "${YELLOW}待删除目录：${DIR}，内部所有文件将被清除${NC}" >&2
@@ -409,23 +411,34 @@ func_uninstall() {
         echo -e "${YELLOW}目录 ${DIR} 不存在，跳过文件删除${NC}" >&2
     fi
 
-    # 4. 清理全局临时/日志残留
-    echo -e "${BLUE}[3/5] 清理系统临时与日志残留${NC}" >&2
+    # 5. 清理全局临时/日志残留
+    echo -e "${BLUE}[4/6] 清理系统临时与日志残留${NC}" >&2
     find /tmp -name "frp*" -delete 2>/dev/null
     find /var/log -name "*frp*" -delete 2>/dev/null
     find /usr/local/bin -name "${BIN_NAME}" -delete 2>/dev/null
 
-    # 5. 防火墙清理提示
-    echo -e "${YELLOW}[提示] 如需清理防火墙放行端口，手动执行对应命令：${NC}" >&2
-    echo "ufw delete allow 7000/tcp; ufw delete allow 7400/tcp; ufw delete allow 7500/tcp" >&2
-    echo "firewall-cmd --remove-port=7000/tcp --permanent; firewall-cmd --reload" >&2
-
+    # 6. 云服务器安全组手动提示
+    echo -e "${YELLOW}[重要提示] 云服务器需前往控制台安全组手动关闭7000/7400/7500端口${NC}" >&2
     echo -e "${GREEN}\n=============================================${NC}" >&2
-    echo -e "✅ ${BIN_NAME} 卸载完成，无systemd残留！" >&2
+    echo -e "✅ ${BIN_NAME} 卸载完成，systemd、防火墙、程序文件均清理完毕！" >&2
     echo -e "校验残留命令：systemctl list-unit-files | grep frp" >&2
     echo -e "${GREEN}=============================================${NC}" >&2
     set -e
 }
+
+# ========== 脚本清理 ==========
+self_delete_script() {
+    echo -e "\n${BLUE}[空间清理] 执行完毕，准备自动删除脚本文件：${SELF_SCRIPT_PATH}${NC}" >&2
+    set +e
+    rm -f "${SELF_SCRIPT_PATH}"
+    set -e
+    if [[ ! -f "${SELF_SCRIPT_PATH}" ]]; then
+        echo -e "${GREEN}✅ 脚本文件已自动删除，释放服务器存储空间${NC}" >&2
+    else
+        echo -e "${YELLOW}[警告] 脚本文件删除失败，请手动删除：${SELF_SCRIPT_PATH}${NC}" >&2
+    fi
+}
+
 # ========== 主菜单 ==========
 main() {
     # 全局root权限校验，所有功能必须root运行
@@ -448,6 +461,8 @@ main() {
         3) func_uninstall ;;
         *) echo -e "${RED}无效选项，退出${NC}" >&2; exit 1 ;;
     esac
+    # 所有功能执行完毕后，调用自删函数
+    self_delete_script
 }
 # 启动入口
 main
