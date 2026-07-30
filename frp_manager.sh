@@ -66,28 +66,54 @@ check_dependencies() {
 get_latest_frp_version() {
     echo -e "${BLUE}\n正在获取FRP最新版本号...${NC}"
     local VER=""
+    # 多套国内镜像API兜底，按顺序轮询
     local API_URLS=(
+        "https://mirror.ghproxy.com/${GH_API}"
+        "https://fastgit.org/${GH_API}"
         "${GH_API_PROXY}"
         "${GH_API}"
     )
+    local retry_times=2
 
     for url in "${API_URLS[@]}"; do
         echo -e "${YELLOW}尝试接口：${url}${NC}"
-        # 优先使用jq解析JSON（精准无误差）
+        local resp=""
+        # 单接口重试2次，超时15s
+        for ((r=0; r < retry_times; r++)); do
+            set +e
+            resp=$(curl -fsSL --max-time 15 "${url}" 2>/tmp/frp_api_err.log)
+            set -e
+            if [[ -n "${resp}" ]]; then
+                break
+            fi
+            # 读取curl报错并打印
+            err_msg=$(cat /tmp/frp_api_err.log)
+            echo -e "${RED}接口请求失败：${err_msg}，等待1秒重试${NC}"
+            sleep 1
+        done
+        rm -f /tmp/frp_api_err.log
+
+        if [[ -z "${resp}" ]]; then
+            echo -e "${YELLOW}当前接口完全无法访问，切换下一个源${NC}"
+            continue
+        fi
+
+        # 解析版本
         if command -v jq &> /dev/null; then
-            VER=$(curl -fsSL --max-time 15 "${url}" | jq -r '.tag_name' | sed 's/^v//')
+            VER=$(echo "${resp}" | jq -r '.tag_name' | sed 's/^v//')
         else
-            # 无jq时使用更强容错正则
-            VER=$(curl -fsSL --max-time 15 "${url}" | sed -nE 's/.*"tag_name":"v([0-9.]+)".*/\1/p' | head -n1)
+            VER=$(echo "${resp}" | sed -nE 's/.*"tag_name":"v([0-9.]+)".*/\1/p' | head -n1)
         fi
 
         if [[ -n "${VER}" && "${VER}" != "null" ]]; then
             break
         fi
+        echo -e "${YELLOW}接口返回数据解析无有效版本，切换下一个源${NC}"
     done
 
     if [[ -z "${VER}" || "${VER}" == "null" ]]; then
-        echo -e "${RED}[警告] 无法获取最新版本，使用兜底版本 v${FALLBACK_FR_VERSION}${NC}"
+        echo -e "${RED}[严重警告] 所有镜像接口均连接失败/解析失败，网络无法访问Github Release接口${NC}"
+        echo -e "${YELLOW}当前将使用兜底固定版本 v${FALLBACK_FR_VERSION}，如需最新版请检查服务器网络或切换网络环境${NC}"
         FRP_VERSION="${FALLBACK_FR_VERSION}"
     else
         FRP_VERSION="${VER}"
@@ -96,20 +122,38 @@ get_latest_frp_version() {
 }
 
 # ========== 公共函数：下载frp二进制 ==========
+# ========== 公共函数：下载frp二进制 ==========
 download_frp_bin() {
     local BIN_NAME="$1"
     TMP_TAR=$(mktemp)
     TMP_DIR=$(mktemp -d)
-    ORIGIN_URL="https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/frp_${FRP_VERSION}_linux_${ARCH}.tar.gz"
-    PROXY_URL="https://ghproxy.com/${ORIGIN_URL}"
+    local raw_url="https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/frp_${FRP_VERSION}_linux_${ARCH}.tar.gz"
+    # 多下载源轮询
+    local DL_URLS=(
+        "https://mirror.ghproxy.com/${raw_url}"
+        "https://fastgit.org/${raw_url}"
+        "https://ghproxy.com/${raw_url}"
+        "${raw_url}"
+    )
+    local dl_ok=false
+
     echo -e "${GREEN}\n开始下载 FRP v${FRP_VERSION} linux_${ARCH}${NC}"
-    echo -e "${BLUE}优先尝试Github镜像加速地址...${NC}"
-    if wget -q --timeout=15 "${PROXY_URL}" -O "${TMP_TAR}"; then
-        echo -e "${GREEN}镜像加速下载成功${NC}"
-    else
-        echo -e "${YELLOW}镜像地址超时，切换原始Github地址下载${NC}"
-        wget -q "${ORIGIN_URL}" -O "${TMP_TAR}"
+    for dl in "${DL_URLS[@]}"; do
+        echo -e "${BLUE}尝试下载地址：${dl}${NC}"
+        if wget -q --timeout=15 "${dl}" -O "${TMP_TAR}"; then
+            echo -e "${GREEN}当前地址下载成功${NC}"
+            dl_ok=true
+            break
+        fi
+        echo -e "${YELLOW}下载超时/连接重置，切换下一个下载源${NC}"
+    done
+
+    if [[ "${dl_ok}" != true ]]; then
+        echo -e "${RED}[错误] 所有下载地址均无法连接，终止安装${NC}"
+        rm -rf "${TMP_TAR}" "${TMP_DIR}"
+        exit 1
     fi
+
     tar -zxf "${TMP_TAR}" -C "${TMP_DIR}"
     cp "${TMP_DIR}/frp_${FRP_VERSION}_linux_${ARCH}/${BIN_NAME}" "${TARGET_BIN}"
     chmod +x "${TARGET_BIN}"
