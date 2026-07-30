@@ -8,26 +8,26 @@
 3. 多线路下载：ghproxy/镜像分流下载FRP二进制，内置wget带进度下载
 4. 防火墙自动化
    - 安装时自动检测端口占用，输出对应放行命令
-   - 卸载自动清理 ufw / firewalld 7000/7400/7500 默认端口规则
-5. systemd 完整托管
+   - 卸载自动清理` ufw / firewalld 7000/7400/7500` 默认端口规则
+5. `systemd `完整托管
    - 自动生成服务单元文件，配置重启策略、文件句柄上限
    - 提供启停/开机自启/日志查看全套操作指引
 6. 交互式可视化配置
    - Web管理面板（自定义地址、端口、账号密码）
-   - frpc批量添加多条TCP/UDP/HTTP/STCP隧道代理
+   - frpc批量添加多条`TCP/UDP/HTTP/STCP`隧道代理
 7. 安全优化
-   - 配置文件权限锁定 600，仅root可读
+   - 配置文件权限锁定 600，仅`root`可读
    - 卸载拦截系统高危目录，防止误删系统文件
 8. 便捷附加功能
    - 升级自动备份旧二进制，提供一键回滚命令
    - 脚本执行完成自动删除自身，不残留临时文件
    - Ctrl+C中断自动清理临时压缩包/临时目录
-9. 全发行版兼容：Debian/Ubuntu/apt、CentOS/Rocky/dnf/yum，自动安装依赖(curl/wget/jq)
+9. 全发行版兼容：`Debian/Ubuntu/apt`、`CentOS/Rocky/dnf/yum`，自动安装依赖`(curl/wget/jq)`
 
 ### 系统限制
 - 仅支持 `amd64(x86_64)` 架构
 - 仅支持带 `systemd` 的 Linux 系统（主流云服务器均适配）
-- 必须使用 root / sudo 权限运行
+- 必须使用 `root / sudo `权限运行
 
 ## 二、快速使用教程
 ### 1. 国内服务器使用
@@ -40,16 +40,16 @@ wget https://raw.githubusercontent.com/taotaowudi/frp-one-key/main/frp_manager.s
 ```
 ### 3. 菜单功能说明
 运行后会弹出功能选择菜单：
-1. 全新安装 frpc / frps
-   - 自定义安装目录（默认 /opt/frp）
+1. 全新安装 `frpc / frps`
+   - 自定义安装目录（默认 `/opt/frp`）
    - 交互式填写Web面板、FRP认证Token、服务端地址/端口
    - frpc模式可批量添加多条隧道代理
    - 自动下载对应版本二进制、生成toml配置、创建systemd服务
-2. 升级frp（保留原有全部配置）
+2. 升级`frp`（保留原有全部配置）
    - 自动拉取最新版本，备份旧程序文件
    - 替换二进制并重启服务，附带回滚方案
-3. 卸载frpc / frps
-   - 停止并禁用systemd服务，查杀残留进程
+3. 卸载`frpc / frps`
+   - 停止并禁用`systemd`服务，查杀残留进程
    - 自动清理本地防火墙放行端口
    - 删除服务单元、程序目录、临时/日志残留文件
    - 高危目录拦截保护，防止误删系统根目录
@@ -118,11 +118,11 @@ frpc.bak.20260730_153000
 mv /opt/frp/bin/frpc.bak.20260730_153000 /opt/frp/bin/frpc && systemctl restart frpc.service
 ```
 ## 六、卸载注意事项
-1. 卸载流程会自动清理本地防火墙7000/7400/7500端口规则，但**不会修改云服务器安全组**，需手动关闭对应端口；
-2. 卸载时可选择保留/删除 /opt/frp 配置目录；
-3. 脚本会自动清理 /tmp、/var/log 下frp相关临时文件与日志；
+1. 卸载流程会自动清理本地防火墙`7000/7400/7500`端口规则，但**不会修改云服务器安全组**，需手动关闭对应端口；
+2. 卸载时可选择保留/删除 `/opt/frp `配置目录；
+3. 脚本会自动清理 `/tmp、/var/log` 下frp相关临时文件与日志；
 4. 卸载完成后可执行以下命令校验无残留服务：
-systemctl list-unit-files | grep frp
+```systemctl list-unit-files | grep frp```
 
 ## 七、常见问题
 ### 1. 提示缺少 curl/wget/jq
@@ -136,6 +136,18 @@ systemctl list-unit-files | grep frp
 
 ### 4. 脚本运行完自动消失
 脚本内置自删除逻辑，执行完安装/升级/卸载后会自动删除自身文件，如需留存请复制一份再运行。
+
+### 5. 客户端无法连接服务端
+   - 核对 `serverAddr`、`serverPort`、`token` 和 `frps` 完全一致
+   - 检查服务端防火墙/云安全组放行7000通信端口
+   - 确认frps服务正常运行 ```systemctl status frps.service```
+### 6. Web面板打不开
+   - 核对面板端口未被占用
+   - 防火墙放行面板端口
+### 7. 隧道无法访问
+   - 检查`remotePort`在服务端防火墙放行
+   - 本地`localIP`、`localPort`程序正常运行
+   - 查看日志 ```journalctl -u frpc.service -f```定位错误
 
 ## 八、License
 MIT License
