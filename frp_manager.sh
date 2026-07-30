@@ -146,28 +146,6 @@ download_frp_bin() {
     unset TMP_TAR TMP_DIR
     echo -e "${GREEN}二进制文件就绪：${TARGET_BIN}${NC}"
 }
-# ========== 公共函数：端口检测与防火墙提示 ==========
-check_port_firewall() {
-    local PORT=$1
-    echo -e "${BLUE}\n[端口检测] 检查端口 ${PORT} 占用情况${NC}"
-    if command -v ss &> /dev/null; then
-        if ss -tulpn | grep ":${PORT}" &> /dev/null; then
-            echo -e "${RED}[警告] 端口${PORT}已经被其他程序占用！请更换端口${NC}"
-        else
-            echo -e "${GREEN}[正常] 端口${PORT}当前未被占用${NC}"
-        fi
-    else
-        echo -e "${YELLOW}[提示] 未找到ss命令，跳过端口占用检测${NC}"
-    fi
-    echo -e "${YELLOW}[防火墙放行提示] 请在防火墙开放端口 ${PORT}"
-    if command -v ufw &> /dev/null; then
-        echo "ufw放行命令：ufw allow ${PORT}/tcp"
-    elif command -v firewall-cmd &> /dev/null; then
-        echo "firewalld放行命令：firewall-cmd --add-port=${PORT}/tcp --permanent && firewall-cmd --reload"
-    else
-        echo "当前未检测到ufw/firewalld，云服务器务必放行云端安全组端口！"
-    fi
-}
 # ========== 交互式填写公共Web面板配置（传入默认端口） ==========
 input_web_config() {
     local DEF_WEB_PORT="$1"
