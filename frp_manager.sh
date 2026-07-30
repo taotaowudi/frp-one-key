@@ -68,9 +68,9 @@ get_latest_frp_version() {
     local VER=""
     # 多套国内镜像API兜底，按顺序轮询
     local API_URLS=(
-        "https://mirror.ghproxy.com/${GH_API}"
-        "https://fastgit.org/${GH_API}"
         "${GH_API_PROXY}"
+		"https://mirror.ghproxy.com/${GH_API}"
+        "https://fastgit.org/${GH_API}"
         "${GH_API}"
     )
     local retry_times=2
