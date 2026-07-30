@@ -27,6 +27,9 @@ check_dependencies() {
     if ! command -v wget &> /dev/null; then
         missing+=("wget")
     fi
+    if ! command -v jq &> /dev/null; then
+        missing+=("jq")
+    fi
     if ! command -v systemctl &> /dev/null; then
         echo -e "${RED}[错误] 当前系统不支持 systemd，脚本无法运行！${NC}"
         exit 1
@@ -40,20 +43,20 @@ check_dependencies() {
     echo -e "${YELLOW}[警告] 缺失依赖组件：${missing[*]}${NC}"
     read -p "是否自动安装缺失依赖？[y/n] " INSTALL_DEP
     if [[ "${INSTALL_DEP,,}" != "y" ]]; then
-        echo -e "${BLUE}Debian/Ubuntu：apt update && apt install curl wget -y${NC}"
-        echo -e "${BLUE}CentOS/Rocky：yum install curl wget -y${NC}"
+        echo -e "${BLUE}Debian/Ubuntu：apt update && apt install curl wget jq -y${NC}"
+        echo -e "${BLUE}CentOS/Rocky：yum install curl wget jq -y${NC}"
         exit 1
     fi
 
     # 判断系统包管理器安装
     if command -v apt &> /dev/null; then
-        apt update && apt install curl wget -y
+        apt update && apt install curl wget jq -y
     elif command -v yum &> /dev/null; then
-        yum install curl wget -y
+        yum install curl wget jq -y
     elif command -v dnf &> /dev/null; then
-        dnf install curl wget -y
+        dnf install curl wget jq -y
     else
-        echo -e "${RED}[错误] 无法识别系统包管理器，请手动安装 curl wget${NC}"
+        echo -e "${RED}[错误] 无法识别系统包管理器，请手动安装 curl wget jq${NC}"
         exit 1
     fi
     echo -e "${GREEN}[完成] 依赖安装完毕，继续执行脚本${NC}"
@@ -62,13 +65,28 @@ check_dependencies() {
 # ========== 公共函数：拉取最新版本 ==========
 get_latest_frp_version() {
     echo -e "${BLUE}\n正在获取FRP最新版本号...${NC}"
-    local VER
-    VER=$(curl -fsSL --max-time 12 "${GH_API_PROXY}" | grep -o '"tag_name":"v[0-9.]*"' | head -1 | sed -E 's/"tag_name":"v([0-9.]*)"/\1/')
-    if [[ -z "${VER}" ]]; then
-        echo -e "${YELLOW}代理API请求失败，尝试直连Github API${NC}"
-        VER=$(curl -fsSL --max-time 12 "${GH_API}" | grep -o '"tag_name":"v[0-9.]*"' | head -1 | sed -E 's/"tag_name":"v([0-9.]*)"/\1/')
-    fi
-    if [[ -z "${VER}" ]]; then
+    local VER=""
+    local API_URLS=(
+        "${GH_API_PROXY}"
+        "${GH_API}"
+    )
+
+    for url in "${API_URLS[@]}"; do
+        echo -e "${YELLOW}尝试接口：${url}${NC}"
+        # 优先使用jq解析JSON（精准无误差）
+        if command -v jq &> /dev/null; then
+            VER=$(curl -fsSL --max-time 15 "${url}" | jq -r '.tag_name' | sed 's/^v//')
+        else
+            # 无jq时使用更强容错正则
+            VER=$(curl -fsSL --max-time 15 "${url}" | sed -nE 's/.*"tag_name":"v([0-9.]+)".*/\1/p' | head -n1)
+        fi
+
+        if [[ -n "${VER}" && "${VER}" != "null" ]]; then
+            break
+        fi
+    done
+
+    if [[ -z "${VER}" || "${VER}" == "null" ]]; then
         echo -e "${RED}[警告] 无法获取最新版本，使用兜底版本 v${FALLBACK_FR_VERSION}${NC}"
         FRP_VERSION="${FALLBACK_FR_VERSION}"
     else
