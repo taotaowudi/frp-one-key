@@ -60,7 +60,7 @@ check_dependencies() {
 get_latest_frp_version() {
     echo -e "${BLUE}\n正在获取FRP最新版本号...${NC}" >&2
     local VER=""
-    # 多套国内镜像API兜底，按顺序轮询
+    # 顺序轮询
     local API_URLS=(
 	    "${GH_API}"
 		"shturl.cc/FJydtFjyi1M${GH_API}"
@@ -147,7 +147,7 @@ download_frp_bin() {
     unset TMP_TAR TMP_DIR
     echo -e "${GREEN}二进制文件就绪：${TARGET_BIN}${NC}" >&2
 }
-# ========== 公共函数：端口检测与防火墙提示（全部输出>&2，修复配置污染） ==========
+# ========== 公共函数：端口检测与防火墙提示（全部输出>&2，防止配置污染） ==========
 check_port_firewall() {
     local PORT=$1
     echo -e "${BLUE}\n[端口检测] 检查端口 ${PORT} 占用情况${NC}" >&2
@@ -230,7 +230,7 @@ func_install() {
     [[ -z "$INSTALL_PATH" ]] && INSTALL_PATH="/opt/frp"
     # 1. Web面板配置（传入对应默认端口）
     input_web_config "${DEF_WEB_PORT}"
-    # 2. FRP基础连接配置（已删除TLS询问）
+    # 2. FRP基础连接配置
     echo -e "\n${BLUE}===== FRP基础连接配置 =====${NC}" >&2
     if [[ "${BIN_NAME}" == "frpc" ]]; then
         read -p "FRP服务端地址serverAddr：" SERVER_ADDR >&2
@@ -247,7 +247,7 @@ func_install() {
     TARGET_BIN="${INSTALL_PATH}/bin/${BIN_NAME}"
     get_latest_frp_version
     download_frp_bin "${BIN_NAME}"
-    # 生成TOML配置（完全移除tlsEnable行）
+    # 生成TOML配置
     > "${CONF_FILE}"
     if [[ "${BIN_NAME}" == "frpc" ]]; then
         cat >> "${CONF_FILE}" <<EOF
@@ -386,9 +386,9 @@ main() {
     echo -e "${GREEN}=============================================${NC}" >&2
     echo -e "          FRP 一体化管理脚本 amd64 systemd" >&2
     echo -e "${GREEN}=============================================${NC}" >&2
-    echo "1) 全新安装 frpc / frps（交互式完整配置）" >&2
-    echo "2) 升级 frp 二进制（保留配置）" >&2
-    echo "3) 卸载 frpc / frps（带二次确认）" >&2
+    echo "1) 全新安装 frpc / frps" >&2
+    echo "2) 升级 frp" >&2
+    echo "3) 卸载 frpc / frps" >&2
     echo -e "${GREEN}=============================================${NC}" >&2
     read -p "请选择功能编号(1/2/3)：" MENU_OPT >&2
     case "${MENU_OPT}" in
