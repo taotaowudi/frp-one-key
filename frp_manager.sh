@@ -201,11 +201,11 @@ input_web_config() {
 
 # ========== frpc 批量交互式添加代理 ==========
 input_frpc_proxies() {
-    echo -e "\n${BLUE}===== 开始配置隧道代理 =====${NC}"
+    echo -e "\n${BLUE}===== 开始配置隧道代理 =====${NC}" >&2
     local proxy_block=""
     local add_more="y"
     while [[ "${add_more,,}" == "y" ]]; do
-        echo -e "\n${YELLOW}--- 新增一条代理隧道 ---${NC}"
+        echo -e "\n${YELLOW}--- 新增一条代理隧道 ---${NC}" >&2
         read -p "隧道名称name：" P_NAME
         read -p "代理类型type(tcp/udp/http/https/stcp)：" P_TYPE
         read -p "本地地址localIP(默认127.0.0.1)：" P_LOCAL_IP
@@ -214,7 +214,7 @@ input_frpc_proxies() {
         read -p "远程端口remotePort：" P_REMOTE_PORT
         check_port_firewall "${P_REMOTE_PORT}"
 
-        # 拼接代理块
+        # 仅这段纯配置输出到标准输出，会被捕获到变量
         proxy_block+="[[proxies]]
 name = \"${P_NAME}\"
 type = \"${P_TYPE}\"
@@ -223,9 +223,10 @@ localPort = ${P_LOCAL_PORT}
 remotePort = ${P_REMOTE_PORT}
 
 "
-        read -p "是否继续添加下一条隧道？[y/n] " add_more
+        read -p "是否继续添加下一条隧道？[y/n] " add_more >&2
     done
-    echo "${proxy_block}"
+    # 只返回纯净代理配置文本
+    echo -n "${proxy_block}"
 }
 
 # ========== 功能1：全新安装 ==========
