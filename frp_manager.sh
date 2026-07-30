@@ -130,9 +130,10 @@ download_frp_bin() {
     local raw_url="https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/frp_${FRP_VERSION}_linux_${ARCH}.tar.gz"
     # 多下载源轮询
     local DL_URLS=(
-        "https://mirror.ghproxy.com/${raw_url}"
-        "https://fastgit.org/${raw_url}"
-        "https://ghproxy.com/${raw_url}"
+	    "${raw_url}"
+        "https://gh-proxy.org/${raw_url}"
+        "https://ghproxy.net/${raw_url}"
+        "https://ghp.keleyaa.com/${raw_url}"
         "${raw_url}"
     )
     local dl_ok=false
