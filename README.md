@@ -1,6 +1,5 @@
 # 🚀 FRP Manager 一体化管理脚本
 一款适配 systemd amd64 架构的 FRP 全自动运维脚本，支持 **一键安装 / 版本升级 / 彻底卸载**，内置多Github加速代理、防火墙自动管理、交互式配置、Web面板、隧道批量配置、执行完毕自删脚本等功能。
-感谢：`https://github.com/fatedier/frp`
 
 ## 一、脚本特性
 ### 核心能力
