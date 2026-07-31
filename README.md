@@ -1,5 +1,6 @@
 # 🚀 FRP Manager 一体化管理脚本
 一款适配 systemd amd64 架构的 FRP 全自动运维脚本，支持 **一键安装 / 版本升级 / 彻底卸载**，内置多Github加速代理、防火墙自动管理、交互式配置、Web面板、隧道批量配置、执行完毕自删脚本等功能。
+感谢：`https://github.com/fatedier/frp`
 
 ## 一、脚本特性
 ### 核心能力
@@ -53,6 +54,24 @@ wget https://raw.githubusercontent.com/taotaowudi/frp-one-key/main/frp_manager.s
    - 自动清理本地防火墙放行端口
    - 删除服务单元、程序目录、临时/日志残留文件
    - 高危目录拦截保护，防止误删系统根目录
+### 4. toml配置说明
+本脚本将引导配置最简单的`toml`
+```bash
+serverAddr = "1.1.1.1"          #frps服务器地址
+serverPort = 7000               #frps服务器端口
+auth.token = "111"              #token
+webServer.addr = "0.0.0.0"      #web管理界面监听地址，如无特殊需求，保持默认即可
+webServer.port = 7400           #web管理界面端口
+webServer.user = "111"          #web管理界面用户名
+webServer.password = "111"      #web管理界面密码
+[[proxies]]                     #代理隧道1
+name = "ssh"                    #代理名称
+type = "tcp"                    #代理类型`(tcp/udp/http/https/stcp)`
+localIP = "127.0.0.1"           #代理地址，默认local
+localPort = 22                  #代理端口
+remotePort = 10022              #远程`（frps）`端口,如不设则frps将自动分配端口
+```
+详细toml配置请参见：`https://github.com/fatedier/frp/blob/dev/README.md`
 
 ## 三、目录结构（默认安装路径 /opt/frp）
 ```
