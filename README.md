@@ -26,6 +26,7 @@
    - `Debian/Ubuntu/apt`、`CentOS/Rocky/dnf/yum`
    - 自动安装依赖`(curl/wget/jq)`
 10. 本脚依赖以下项目，感谢`frp`项目作者
+   - `Debian/Ubuntu/apt`、`CentOS/Rocky/dnf/yum`
    - 链接`https://github.com/fatedier/frp`
 
 ### 系统限制
