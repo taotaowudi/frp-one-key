@@ -58,6 +58,7 @@ wget https://raw.githubusercontent.com/taotaowudi/frp-one-key/main/frp_manager.s
    - 高危目录拦截保护，防止误删系统根目录
 ### 4. toml配置说明
 本脚本将引导配置最简单的`toml`
+
 frpc客户端
 ```bash 
 serverAddr = "1.1.1.1"          #frps服务器地址
