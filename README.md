@@ -58,7 +58,7 @@ wget https://raw.githubusercontent.com/taotaowudi/frp-one-key/main/frp_manager.s
    - 高危目录拦截保护，防止误删系统根目录
 ### 4. toml配置说明
 本脚本将引导配置最简单的`toml`
-```bash
+```bash frpc客户端
 serverAddr = "1.1.1.1"          #frps服务器地址
 serverPort = 7000               #frps服务器端口
 auth.token = "111"              #token
@@ -73,7 +73,17 @@ localIP = "127.0.0.1"           #代理地址，默认local
 localPort = 22                  #代理端口
 remotePort = 10022              #远程`（frps）`端口,如不设则frps将自动分配端口
 ```
+```bash frps服务端端
+bindAddr = "0.0.0.0"            #frps server监听地址，默认监听所有地址，如无特殊需求，保持默认即可
+bindPort = 7000                 #frps server端口，frpc填入此端口才能建立隧道连接，默认
+auth.token = "111"              #token，frpc填入此鉴权密钥才能建立隧道连接
+webServer.addr = "0.0.0.0"      #web管理界面监听地址，如无特殊需求，保持默认即可
+webServer.port = 7500           #web管理界面端口
+webServer.user = "111"          #web管理界面用户名
+webServer.password = "111"      #web管理界面密码
+```
 详细toml配置请参见：`https://github.com/fatedier/frp/blob/dev/README.md`
+修改配置执行```systemctl restart frps.service```
 
 ## 三、目录结构（默认安装路径 /opt/frp）
 ```
