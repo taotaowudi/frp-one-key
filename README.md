@@ -25,9 +25,7 @@
 9. 全发行版兼容
    - `Debian/Ubuntu/apt`、`CentOS/Rocky/dnf/yum`
    - 自动安装依赖`(curl/wget/jq)`
-10. 本脚依赖以下项目，感谢`frp`项目作者
-   - `Debian/Ubuntu/apt`、`CentOS/Rocky/dnf/yum`
-   - 链接`https://github.com/fatedier/frp`
+10. 本脚本依赖`frp`项目，感谢项目作者，链接`https://github.com/fatedier/frp`
 
 ### 系统限制
 - 仅支持 `amd64(x86_64)` 架构
