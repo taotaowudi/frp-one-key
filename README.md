@@ -23,7 +23,11 @@
    - 升级自动备份旧二进制，提供一键回滚命令
    - 脚本执行完成自动删除自身，不残留临时文件
    - Ctrl+C中断自动清理临时压缩包/临时目录
-9. 全发行版兼容：`Debian/Ubuntu/apt`、`CentOS/Rocky/dnf/yum`，自动安装依赖`(curl/wget/jq)`
+9. 全发行版兼容
+   - `Debian/Ubuntu/apt`、`CentOS/Rocky/dnf/yum`
+   - 自动安装依赖`(curl/wget/jq)`
+10. 本脚依赖以下项目，感谢`frp`项目作者
+   - `https://github.com/fatedier/frp`
 
 ### 系统限制
 - 仅支持 `amd64(x86_64)` 架构
