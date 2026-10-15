@@ -186,7 +186,3 @@ mv /opt/frp/bin/frpc.bak.20260730_153000 /opt/frp/bin/frpc && systemctl restart 
    - 检查`remotePort`在服务端防火墙放行
    - 本地`localIP`、`localPort`程序正常运行
    - 查看日志 ```journalctl -u frpc.service -f```定位错误
-
-## 八、License
-MIT License
-可自由修改、分发、商用。
